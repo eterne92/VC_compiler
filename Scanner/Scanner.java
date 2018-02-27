@@ -5,6 +5,7 @@
 package VC.Scanner;
 
 import VC.ErrorReporter;
+import VC.vc;
 
 public final class Scanner {
 
@@ -15,6 +16,8 @@ public final class Scanner {
   private StringBuffer currentSpelling;
   private char currentChar;
   private SourcePosition sourcePos;
+  private int charLine;
+  private int charCol;
 
   // =========================================================
 
@@ -25,6 +28,8 @@ public final class Scanner {
     debug = false;
 
     // you may initialise your counters for line and column numbers here
+    charLine = 1;
+    charCol = 1;
   }
 
   public void enableDebugging() {
@@ -34,8 +39,21 @@ public final class Scanner {
   // accept gets the next character from the source program.
 
   private void accept() {
-
     currentSpelling.append(currentChar);
+    if(currentChar == '\n'){
+      charLine ++;
+      charCol = 1;
+    }
+    else if(currentChar == '\t'){
+      int spaces = (((charCol - 1) / 8) + 1) * 8 - charCol;
+      for(int i= 0;i<spaces;i++){
+        currentSpelling.append(' ');
+      }
+      charCol += spaces;
+    }
+    else{
+      charCol ++;
+    }
     currentChar = sourceFile.getNextChar();
 
     // you may save the lexeme of the current token incrementally here
@@ -208,7 +226,46 @@ public final class Scanner {
         return Token.GT;
       }
 
-      // ....
+    //stringliteral
+    case '"':
+      accept();
+      currentSpelling.deleteCharAt(currentSpelling.length()-1);
+      while(currentChar != '"'){
+        if(currentChar == '\\'){
+          accept();
+          if(currentChar != 'b' && currentChar != 'f' && currentChar != 'n' &&
+              currentChar != 'r' && currentChar != 't' && currentChar != '\'' &&
+                currentChar != '"' && currentChar != '\\'){
+                  SourcePosition currentPos = new SourcePosition();
+                  currentPos.lineStart = sourcePos.lineStart;
+                  currentPos.charStart = sourcePos.charStart;
+                  currentPos.lineFinish = charLine;
+                  currentPos.charFinish = charCol;
+                  errorReporter.reportError("\\" + currentChar + ": illegal escape character",
+                   "\\" + currentChar, currentPos);
+            accept();
+          }
+          else{
+            accept();
+          }
+        }
+        else if(currentChar == '\n'){
+          // SourcePosition currentPos = new SourcePosition();
+          // currentPos.lineStart = sourcePos.lineStart;
+          // currentPos.charStart = sourcePos.charStart;
+          // currentPos.lineFinish = charLine;
+          // currentPos.charFinish = charCol;
+          errorReporter.reportError(currentSpelling.toString() + ": unterminated string", 
+           currentSpelling.toString(), sourcePos);
+          return Token.STRINGLITERAL;
+        }
+        else{
+          accept();
+        }
+      }
+      accept();
+      currentSpelling.deleteCharAt(currentSpelling.length()-1);
+      return Token.STRINGLITERAL;
     case SourceFile.eof:
       currentSpelling.append(Token.spell(Token.EOF));
       return Token.EOF;
@@ -219,8 +276,47 @@ public final class Scanner {
     accept();
     return Token.ERROR;
   }
+  boolean vcBlank(char c){
+    if(c == ' ' || c == '\f'|| c == '\t' || c == '\r' || c == '\n'){
+      return true;
+    }
+    else{
+      return false;
+    }
+  }
 
   void skipSpaceAndComments() {
+    if(vcBlank(currentChar)){
+      accept();
+      while(vcBlank(currentChar)){
+        accept();
+      }
+    }
+    //deal with comments
+    if(currentChar == '/'){
+      if(inspectChar(1) == '/'){
+        accept();
+        while(currentChar != '\r' && currentChar != '\n'){
+          accept();
+        }
+        accept();
+          skipSpaceAndComments();
+      }
+      else if(inspectChar(1) == '*'){
+        accept();
+        SourcePosition sp = new SourcePosition(charLine,charCol - 1, charCol - 1);
+        while(!(currentChar == '*' && inspectChar(1) == '/')){
+          if(currentChar == SourceFile.eof){
+            errorReporter.reportError(": unterminated comment"," ",sp);
+            return;
+          }
+          accept();
+        }
+        accept();
+        accept();
+          skipSpaceAndComments();
+      }
+    }
   }
 
   public Token getToken() {
@@ -229,15 +325,21 @@ public final class Scanner {
 
     // skip white space and comments
 
+    currentSpelling = new StringBuffer("");
     skipSpaceAndComments();
 
     currentSpelling = new StringBuffer("");
 
     sourcePos = new SourcePosition();
-
+    sourcePos.lineStart = charLine;
+    sourcePos.charStart = charCol;
+    sourcePos.lineFinish = charLine;
+    sourcePos.charFinish = charCol;
     // You must record the position of the current token somehow
 
     kind = nextToken();
+    sourcePos.lineFinish = charLine;
+    sourcePos.charFinish = charCol;
 
     tok = new Token(kind, currentSpelling.toString(), sourcePos);
 
