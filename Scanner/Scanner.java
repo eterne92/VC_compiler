@@ -35,6 +35,7 @@ public final class Scanner {
 
   private void accept() {
 
+    currentSpelling.append(currentChar);
     currentChar = sourceFile.getNextChar();
 
     // you may save the lexeme of the current token incrementally here
@@ -78,18 +79,36 @@ public final class Scanner {
         accept();
       }
       //e or E
+      //without e or E, it's a float
       if(currentChar != 'e' && currentChar != 'E'){
         return Token.FLOATLITERAL;
       }
-      accept();
-      //+ or -
-      if(currentChar == '+' || currentChar == '-'){
-        accept();
-      }
-      accept();
-      //digit after + or -
-      if(!Character.isDigit(currentChar)){
-        
+      //with e, we need to look forward
+      else{
+        //if next one is + or -
+        if(inspectChar(1) == '-' || inspectChar(1) == '+'){
+          //if there is a digit after + or -, it's a float
+          if(Character.isDigit(inspectChar(2))){
+            accept();//accept Ee
+            accept();//accept +-
+            while(Character.isDigit(currentChar)){
+              accept();
+            }
+            return Token.FLOATLITERAL;
+          }
+          //if there isn't, float ends before e
+          else{
+            return Token.FLOATLITERAL;
+          }
+        }
+        //if next one is digit, it's a float
+        else if(Character.isDigit(inspectChar(1))){
+          accept();
+          while(Character.isDigit(currentChar)){
+            accept();
+          }
+          return Token.FLOATLITERAL;
+        }
       }
 
       //  attempting to recognise a float
