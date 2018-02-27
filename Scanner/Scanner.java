@@ -74,45 +74,8 @@ public final class Scanner {
     return sourceFile.inspectChar(nthChar);
   }
 
-  private int nextToken() {
-    // Tokens: separators, operators, literals, identifiers and keyworods
-
-    switch (currentChar) {
-    // separators 
-    case '(':
-      accept();
-      return Token.LPAREN;
-    case ')':
-      accept();
-      return Token.RPAREN;
-    case '{':
-      accept();
-      return Token.LCURLY;
-    case '}':
-      accept();
-      return Token.RCURLY;
-    case '[':
-      accept();;
-      return Token.LBRACKET;
-    case ']':
-      accept();
-      return Token.RBRACKET;
-    case ';':
-      accept();
-      return Token.SEMICOLON;
-    case ',':
-      accept();
-      return Token.COMMA;
-
-    // floatliteral start with .
-    case '.':
-      accept();
-      //digit part first
-      //without digit it's an error(only .)
-      if(!Character.isDigit(currentChar)){
-        return Token.ERROR;
-      }
-      //with digit
+  private int fraction(){
+     //with digit
       while(Character.isDigit(currentChar)){
         accept();
       }
@@ -148,7 +111,48 @@ public final class Scanner {
           return Token.FLOATLITERAL;
         }
       }
-      break;
+    return Token.FLOATLITERAL;
+  }
+  private int nextToken() {
+    // Tokens: separators, operators, literals, identifiers and keyworods
+
+    switch (currentChar) {
+    // separators 
+    case '(':
+      accept();
+      return Token.LPAREN;
+    case ')':
+      accept();
+      return Token.RPAREN;
+    case '{':
+      accept();
+      return Token.LCURLY;
+    case '}':
+      accept();
+      return Token.RCURLY;
+    case '[':
+      accept();;
+      return Token.LBRACKET;
+    case ']':
+      accept();
+      return Token.RBRACKET;
+    case ';':
+      accept();
+      return Token.SEMICOLON;
+    case ',':
+      accept();
+      return Token.COMMA;
+
+    // floatliteral start with .
+    case '.':
+      //digit part first
+      //without digit it's an error(only .)
+      if(!Character.isDigit(inspectChar(1))){
+        accept();
+        return Token.ERROR;
+      }
+      accept();
+      return fraction();
 
     //operators
     case '|':
@@ -240,13 +244,41 @@ public final class Scanner {
                   currentPos.lineStart = sourcePos.lineStart;
                   currentPos.charStart = sourcePos.charStart;
                   currentPos.lineFinish = charLine;
-                  currentPos.charFinish = charCol;
+                  currentPos.charFinish = charCol - 1;
                   errorReporter.reportError("\\" + currentChar + ": illegal escape character",
                    "\\" + currentChar, currentPos);
             accept();
           }
           else{
+            currentSpelling.deleteCharAt(currentSpelling.length() - 1);
+            switch(currentChar){
+              case 'b':
+                currentSpelling.append('\b');
+                break;
+              case 'r':
+                currentSpelling.append('\r');
+                break;
+              case 'n':
+                currentSpelling.append('\n');
+                break;
+              case 'f':
+                currentSpelling.append('\f');
+                break;
+              case 't':
+                currentSpelling.append('\t');
+                break;
+              case '\'':
+                currentSpelling.append('\'');
+                break;
+              case '"':
+                currentSpelling.append('"');
+                break;
+              case '\\':
+                currentSpelling.append('\\');
+                break;
+            }
             accept();
+            currentSpelling.deleteCharAt(currentSpelling.length() - 1);
           }
         }
         else if(currentChar == '\n'){
@@ -270,11 +302,70 @@ public final class Scanner {
       currentSpelling.append(Token.spell(Token.EOF));
       return Token.EOF;
     default:
+      if(Character.isDigit(currentChar)){
+        while(Character.isDigit(currentChar)){
+          accept();
+        }
+        if(currentChar == '.'){
+          accept();
+          return fraction();
+        }
+        else{
+          return Token.INTLITERAL;
+        }
+      }
+      else if(letter(currentChar)){
+        accept();
+        while(letter(currentChar) || Character.isDigit(currentChar)){
+          accept();
+        }
+        switch(currentSpelling.toString()){
+          case "boolean":
+            return Token.BOOLEAN;
+          case "break":
+            return Token.BREAK;
+          case "continue":
+            return Token.CONTINUE;
+          case "else":
+            return Token.ELSE;
+          case "float":
+            return Token.FLOAT;
+          case "for":
+            return Token.FOR;
+          case "if":
+            return Token.IF;
+          case "int":
+            return Token.INT;
+          case "return":
+            return Token.RETURN;
+          case "void":
+            return Token.VOID;
+          case "while":
+            return Token.WHILE;
+          case "true":
+            return Token.BOOLEANLITERAL;
+          case "flase":
+            return Token.BOOLEANLITERAL;
+        }
+        return Token.ID;
+      }
       break;
     }
 
     accept();
     return Token.ERROR;
+  }
+  boolean letter(char c){
+    if(c >= 'a' && c <= 'z'){
+      return true;
+    }
+    else if(c >= 'A' && c <= 'Z'){
+      return true;
+    }
+    else if(c == '_'){
+      return true;
+    }
+    else return false;
   }
   boolean vcBlank(char c){
     if(c == ' ' || c == '\f'|| c == '\t' || c == '\r' || c == '\n'){
@@ -340,6 +431,9 @@ public final class Scanner {
     kind = nextToken();
     sourcePos.lineFinish = charLine;
     sourcePos.charFinish = charCol;
+    if(kind != Token.EOF){
+      sourcePos.charFinish --;
+    }
 
     tok = new Token(kind, currentSpelling.toString(), sourcePos);
 
