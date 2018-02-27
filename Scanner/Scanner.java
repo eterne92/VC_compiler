@@ -67,6 +67,26 @@ public final class Scanner {
     case ')':
       accept();
       return Token.RPAREN;
+    case '{':
+      accept();
+      return Token.LCURLY;
+    case '}':
+      accept();
+      return Token.RCURLY;
+    case '[':
+      accept();;
+      return Token.LBRACKET;
+    case ']':
+      accept();
+      return Token.RBRACKET;
+    case ';':
+      accept();
+      return Token.SEMICOLON;
+    case ',':
+      accept();
+      return Token.COMMA;
+
+    // floatliteral start with .
     case '.':
       accept();
       //digit part first
@@ -110,9 +130,9 @@ public final class Scanner {
           return Token.FLOATLITERAL;
         }
       }
+      break;
 
-      //  attempting to recognise a float
-
+    //operators
     case '|':
       accept();
       if (currentChar == '|') {
@@ -120,6 +140,72 @@ public final class Scanner {
         return Token.OROR;
       } else {
         return Token.ERROR;
+      }
+
+    case '+':
+      accept();
+      return Token.PLUS;
+
+    case '-':
+      accept();
+      return Token.MINUS;
+
+    case '*':
+      accept();
+      return Token.MULT;
+
+    case '/':
+      accept();
+      return Token.DIV;
+
+    case '=':
+      accept();
+      if (currentChar == '='){
+        accept();
+        return Token.EQEQ;
+      }
+      else{
+        return Token.EQ;
+      }
+
+    case '!':
+      accept();
+      if(currentChar == '='){
+        accept();
+        return Token.NOTEQ;
+      }
+      else{
+        return Token.NOT;
+      }
+
+    case '&':
+      accept();
+      if(currentChar == '&'){
+        accept();
+        return Token.ANDAND;
+      }
+      else{
+        return Token.ERROR;
+      }
+
+    case '<':
+      accept();
+      if(currentChar == '='){
+        accept();
+        return Token.LTEQ;
+      }
+      else{
+        return Token.LT;
+      }
+    
+    case '>':
+      accept();
+      if(currentChar == '='){
+        accept();
+        return Token.GTEQ;
+      }
+      else{
+        return Token.GT;
       }
 
       // ....
