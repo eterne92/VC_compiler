@@ -45,7 +45,7 @@ public final class Scanner {
       charCol = 1;
     }
     else if(currentChar == '\t'){
-      int spaces = (((charCol - 1) / 8) + 1) * 8 - charCol;
+      int spaces = (((charCol - 1) / 8) + 1) * 8 - charCol + 1;
       for(int i= 0;i<spaces;i++){
         currentSpelling.append(' ');
       }
@@ -74,7 +74,7 @@ public final class Scanner {
     return sourceFile.inspectChar(nthChar);
   }
 
-  private int fraction(){
+  private int fraction(int n){
      //with digit
       while(Character.isDigit(currentChar)){
         accept();
@@ -111,7 +111,7 @@ public final class Scanner {
           return Token.FLOATLITERAL;
         }
       }
-    return Token.FLOATLITERAL;
+    return n;
   }
   private int nextToken() {
     // Tokens: separators, operators, literals, identifiers and keyworods
@@ -152,7 +152,7 @@ public final class Scanner {
         return Token.ERROR;
       }
       accept();
-      return fraction();
+      return fraction(Token.FLOATLITERAL);
 
     //operators
     case '|':
@@ -308,7 +308,10 @@ public final class Scanner {
         }
         if(currentChar == '.'){
           accept();
-          return fraction();
+          return fraction(Token.INTLITERAL);
+        }
+        else if(currentChar == 'E' || currentChar == 'e'){
+          return fraction(Token.INTLITERAL);
         }
         else{
           return Token.INTLITERAL;
@@ -344,7 +347,7 @@ public final class Scanner {
             return Token.WHILE;
           case "true":
             return Token.BOOLEANLITERAL;
-          case "flase":
+          case "false":
             return Token.BOOLEANLITERAL;
         }
         return Token.ID;
