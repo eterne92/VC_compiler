@@ -245,7 +245,7 @@ public final class Scanner {
                   currentPos.charStart = sourcePos.charStart;
                   currentPos.lineFinish = charLine;
                   currentPos.charFinish = charCol - 1;
-                  errorReporter.reportError("\\" + currentChar + ": illegal escape character",
+                  errorReporter.reportError("%: illegal escape character",
                    "\\" + currentChar, currentPos);
             accept();
           }
@@ -287,7 +287,7 @@ public final class Scanner {
           // currentPos.charStart = sourcePos.charStart;
           // currentPos.lineFinish = charLine;
           // currentPos.charFinish = charCol;
-          errorReporter.reportError(currentSpelling.toString() + ": unterminated string", 
+          errorReporter.reportError("%: unterminated string", 
            currentSpelling.toString(), sourcePos);
           return Token.STRINGLITERAL;
         }
