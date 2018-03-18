@@ -40,9 +40,14 @@ public final class Scanner {
 
   private void accept() {
     currentSpelling.append(currentChar);
-    if(currentChar == '\n'){
+    // if(currentChar == '\n'){
+    if(currentChar == '\n' || currentChar == '\r'){
       charLine ++;
       charCol = 1;
+      if(currentChar == '\r' && inspectChar(1) == '\n'){
+        accept();
+        charLine --;
+      }
     }
     else if(currentChar == '\t'){
       int spaces = (((charCol - 1) / 8) + 1) * 8 - charCol + 1;
@@ -281,7 +286,7 @@ public final class Scanner {
             currentSpelling.deleteCharAt(currentSpelling.length() - 1);
           }
         }
-        else if(currentChar == '\n'){
+        else if(currentChar == '\n' || currentChar == '\r'){
           // SourcePosition currentPos = new SourcePosition();
           // currentPos.lineStart = sourcePos.lineStart;
           // currentPos.charStart = sourcePos.charStart;
@@ -308,7 +313,7 @@ public final class Scanner {
         }
         if(currentChar == '.'){
           accept();
-          return fraction(Token.INTLITERAL);
+          return fraction(Token.FLOATLITERAL);
         }
         else if(currentChar == 'E' || currentChar == 'e'){
           return fraction(Token.INTLITERAL);
