@@ -48,7 +48,10 @@ import VC.Scanner.Scanner;
 import VC.Scanner.SourcePosition;
 import VC.Scanner.Token;
 
+import java.nio.channels.AcceptPendingException;
 import java.sql.SQLSyntaxErrorException;
+
+import javax.security.auth.login.AccountException;
 
 import VC.ErrorReporter;
 
@@ -91,13 +94,14 @@ public class Recogniser {
     // ========================== SELF DEFINE FUNCS==================
 
     // ========================== PROGRAMS ========================
-
+    private boolean id_checked = false;
     public void parseProgram() {
 
         try {
             while (currentToken.kind != Token.EOF) {
                 parseType();
                 parseIdent();
+                id_checked = true;
                 switch(currentToken.kind){
                     case Token.LPAREN:
                         parseFuncDecl();
@@ -105,8 +109,8 @@ public class Recogniser {
                     default:
                         parseVarDecl();
                 }
-                parseFuncDecl();
             }
+            match(Token.EOF);
         } catch (SyntaxError s) {
         }
     }
@@ -127,33 +131,37 @@ public class Recogniser {
     void parseInitDecList() throws SyntaxError {
         parseInitDeclarator();
         while(currentToken.kind == Token.COMMA){
+            match(Token.COMMA);
+            parseIdent();
             parseInitDeclarator();
         }
+       
     }
 
     void parseInitDeclarator() throws SyntaxError {
         parseDeclarator();
         if(currentToken.kind == Token.EQ){
+            acceptOperator();
             parseInitialiser();
         }
     }
-    // ID already parsed so no more ID been parse in Declarator
+
     void parseDeclarator() throws SyntaxError {
         if(currentToken.kind == Token.LBRACKET){
             match(Token.LBRACKET);
             if(currentToken.kind == Token.INTLITERAL){
-                match(Token.INTLITERAL);
+                parseIntLiteral();
             }
             match(Token.RBRACKET);
         }
     }
 
     void parseInitialiser() throws SyntaxError {
-        switch(currentToken.kind){
+        switch(currentToken.kind) {
             case Token.LCURLY:
                 match(Token.LCURLY);
                 parseExpr();
-                while(currentToken.kind == Token.COMMA){
+                while(currentToken.kind == Token.COMMA) {
                     match(Token.COMMA);
                     parseExpr();
                 }
@@ -161,8 +169,8 @@ public class Recogniser {
                 break;
             default:
                 parseExpr();
+                break;
         }
-
     }
     // ======================= PRIMITIVE TYPES =========================
     void parseType() throws SyntaxError {
@@ -190,6 +198,7 @@ public class Recogniser {
         parseStmtList();
         match(Token.RCURLY);
     }
+
     void parseVarDeclList() throws SyntaxError {
         while(currentToken.kind == Token.INT || currentToken.kind == Token.BOOLEAN 
         || currentToken.kind == Token.FLOAT || currentToken.kind == Token.VOID){
@@ -269,12 +278,12 @@ public class Recogniser {
         if(currentToken.kind != Token.SEMICOLON){
             parseExpr();
         }
-        match(Token.SEMICOLON);
         match(Token.RPAREN);
         parseStmt();
     }
 
     void parseWhileStmt() throws SyntaxError {
+        match(Token.WHILE);
         match(Token.LPAREN);
         parseExpr();
         match(Token.RPAREN);
@@ -288,6 +297,9 @@ public class Recogniser {
 
     void parseReturnStmt() throws SyntaxError {
         match(Token.RETURN);
+        if(currentToken.kind != Token.SEMICOLON){
+            parseExpr();
+        }
         match(Token.SEMICOLON);
     }
     void parseContinueStmt() throws SyntaxError {
@@ -338,14 +350,51 @@ public class Recogniser {
 
     void parseAssignExpr() throws SyntaxError {
 
-        parseAdditiveExpr();
+        parseCondOrExpr();
+        while(currentToken.kind == Token.EQ){
+            acceptOperator();
+            parseCondOrExpr();
+        }
 
+    }
+
+    void parseCondOrExpr() throws SyntaxError {
+        parseCondAndExpr();
+        while(currentToken.kind == Token.OROR) {
+            acceptOperator();
+            parseCondAndExpr();
+        }
+    }
+
+    void parseCondAndExpr() throws SyntaxError {
+        parseEqualityExpr();
+        while(currentToken.kind == Token.ANDAND){
+            acceptOperator();
+            parseEqualityExpr();
+        }
+    }
+
+    void parseEqualityExpr() throws SyntaxError {
+        parseRelExpr();
+        while(currentToken.kind == Token.EQEQ || currentToken.kind == Token.NOTEQ) {
+            acceptOperator();
+            parseRelExpr();
+        }
+    }
+
+    void parseRelExpr() throws SyntaxError {
+        parseAdditiveExpr();
+        while(currentToken.kind == Token.GT || currentToken.kind == Token.GTEQ
+            || currentToken.kind == Token.LT || currentToken.kind == Token.LTEQ) {
+                acceptOperator();
+                parseAdditiveExpr();
+            }
     }
 
     void parseAdditiveExpr() throws SyntaxError {
 
         parseMultiplicativeExpr();
-        while (currentToken.kind == Token.PLUS) {
+        while (currentToken.kind == Token.PLUS || currentToken.kind == Token.MINUS) {
             acceptOperator();
             parseMultiplicativeExpr();
         }
@@ -354,7 +403,7 @@ public class Recogniser {
     void parseMultiplicativeExpr() throws SyntaxError {
 
         parseUnaryExpr();
-        while (currentToken.kind == Token.MULT) {
+        while (currentToken.kind == Token.MULT || currentToken.kind == Token.DIV) {
             acceptOperator();
             parseUnaryExpr();
         }
@@ -363,15 +412,24 @@ public class Recogniser {
     void parseUnaryExpr() throws SyntaxError {
 
         switch (currentToken.kind) {
-        case Token.MINUS: {
-            acceptOperator();
-            parseUnaryExpr();
-        }
-            break;
+            case Token.PLUS:
+                acceptOperator();
+                parseUnaryExpr();
+                break;
 
-        default:
-            parsePrimaryExpr();
-            break;
+            case Token.MINUS: 
+                acceptOperator();
+                parseUnaryExpr();
+                break;
+
+            case Token.NOT:
+                acceptOperator();
+                parseUnaryExpr();
+                break;
+
+            default:
+                parsePrimaryExpr();
+                break;
 
         }
     }
@@ -380,23 +438,43 @@ public class Recogniser {
 
         switch (currentToken.kind) {
 
-        case Token.ID:
-            parseIdent();
-            break;
+            case Token.ID:
+                parseIdent();
+                switch(currentToken.kind){
+                    case Token.LPAREN:
+                        parseArgList();
+                        break;
+                    case Token.LBRACKET:
+                        match(Token.LBRACKET);
+                        parseExpr();
+                        match(Token.RBRACKET);
+                }
+                break;
 
-        case Token.LPAREN: {
-            accept();
-            parseExpr();
-            match(Token.RPAREN);
-        }
-            break;
+            case Token.LPAREN: 
+                accept();
+                parseExpr();
+                match(Token.RPAREN);
+                break;
 
-        case Token.INTLITERAL:
-            parseIntLiteral();
-            break;
-
-        default:
-            syntacticError("illegal parimary expression", currentToken.spelling);
+            case Token.INTLITERAL:
+                parseIntLiteral();
+                break;
+            
+            case Token.FLOATLITERAL:
+                parseFloatLiteral();
+                break;
+            
+            case Token.BOOLEANLITERAL:
+                parseBooleanLiteral();
+                break;
+            
+            case Token.STRINGLITERAL:
+                parseStringLiteral();
+                break;
+                
+            default:
+                syntacticError("illegal parimary expression", currentToken.spelling);
 
         }
     }
@@ -430,6 +508,14 @@ public class Recogniser {
             syntacticError("boolean literal expected here", "");
     }
 
+    void parseStringLiteral() throws SyntaxError {
+        if (currentToken.kind == Token.STRINGLITERAL) {
+            currentToken = scanner.getToken();
+        } else
+            syntacticError("string literal expected here", "");
+
+    }
+
     //  ======================= PARAMETERS ======================
     void parseParaList() throws SyntaxError {
         match(Token.LPAREN);
@@ -445,7 +531,7 @@ public class Recogniser {
 
     void parseProperParaList() throws SyntaxError {
         parseParaDecl();
-        while(currentToken.kend == Token.COMMA){
+        while(currentToken.kind == Token.COMMA){
             match(Token.COMMA);
             parseParaDecl();
         }
@@ -456,6 +542,26 @@ public class Recogniser {
         // parse ID first
         parseIdent();
         parseDeclarator();
+    }
+
+    void parseArgList() throws SyntaxError {
+        match(Token.LPAREN);
+        if(currentToken.kind != Token.RPAREN){
+            parseProperArgList();
+        }
+        match(Token.RPAREN);
+    }
+
+    void parseProperArgList() throws SyntaxError {
+        parseArg();
+        while(currentToken.kind == Token.COMMA){
+            match(Token.COMMA);
+            parseArg();
+        }
+    }
+
+    void parseArg() throws SyntaxError {
+        parseExpr();
     }
 
 }
