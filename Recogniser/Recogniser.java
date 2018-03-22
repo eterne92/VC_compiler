@@ -94,14 +94,12 @@ public class Recogniser {
     // ========================== SELF DEFINE FUNCS==================
 
     // ========================== PROGRAMS ========================
-    private boolean id_checked = false;
     public void parseProgram() {
 
         try {
             while (currentToken.kind != Token.EOF) {
                 parseType();
                 parseIdent();
-                id_checked = true;
                 switch(currentToken.kind){
                     case Token.LPAREN:
                         parseFuncDecl();
