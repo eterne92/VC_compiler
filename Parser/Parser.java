@@ -124,14 +124,16 @@ public class Parser {
 
         SourcePosition programPos = new SourcePosition();
         start(programPos);
-
+        List dlAST = null;
         try {
-            List dlAST = parseFuncDeclList();
+            if (currentToken.kind != Token.EOF) {
+                Type tAST = parseType();
+                Ident iAST = parseIdent();
+                dlAST = parseDeclList(tAST, iAST);
+            }
+            match(Token.EOF);
             finish(programPos);
             programAST = new Program(dlAST, programPos);
-            if (currentToken.kind != Token.EOF) {
-                syntacticError("\"%\" unknown type", currentToken.spelling);
-            }
         } catch (SyntaxError s) {
             return null;
         }
@@ -140,22 +142,47 @@ public class Parser {
 
     // ========================== DECLARATIONS ========================
 
-    List parseFuncDeclList() throws SyntaxError {
+    List parseDeclList(Type tAST, Ident iAST) throws SyntaxError {
         List dlAST = null;
         Decl dAST = null;
 
-        SourcePosition funcPos = new SourcePosition();
-        start(funcPos);
+        SourcePosition dlPos = new SourcePosition();
+        start(dlPos);
 
-        dAST = parseFuncDecl();
+        switch(currentToken.kind){
+            case Token.LPAREN:
+                dAST = parseFuncDecl(tAST, iAST);
+                break;
+            default:
+                dAST = parseGlobalVarDecl(tAST, iAST);
+                /* if there is one more dec */
+                if(currentToken.kind == Token.COMMA) {
+                    match(Token.COMMA);
+                    /* make sure not falling into func decl */
+                    if(currentToken.kind != Token.LPAREN){
+                        iAST = parseIdent();
+                        dlAST = parseDeclList(tAST, iAST);
+                    }
+                    else{
+                        /* raise some error */
+                        match(Token.ID);
+                    }
+                    finish(dlPos);
+                    dlAST = new DeclList(dAST, dlAST, dlPos);
+                }
+                match(Token.SEMICOLON);
+        }
 
-        if (currentToken.kind == Token.VOID) {
-            dlAST = parseFuncDeclList();
-            finish(funcPos);
-            dlAST = new DeclList(dAST, dlAST, funcPos);
+        if (currentToken.kind == Token.VOID || currentToken.kind == Token.BOOLEAN
+        || currentToken.kind == Token.INT || currentToken.kind == Token.FLOAT) {
+            tAST = parseType();
+            iAST = parseIdent();
+            dlAST = parseDeclList(tAST, iAST);
+            finish(dlPos);
+            dlAST = new DeclList(dAST, dlAST, dlPos);
         } else if (dAST != null) {
-            finish(funcPos);
-            dlAST = new DeclList(dAST, new EmptyDeclList(dummyPos), funcPos);
+            finish(dlPos);
+            dlAST = new DeclList(dAST, new EmptyDeclList(dummyPos), dlPos);
         }
         if (dlAST == null)
             dlAST = new EmptyDeclList(dummyPos);
@@ -163,15 +190,19 @@ public class Parser {
         return dlAST;
     }
 
-    Decl parseFuncDecl() throws SyntaxError {
+    Decl parseFuncDecl(Type tAST, Ident iAST) throws SyntaxError {
 
         Decl fAST = null;
 
         SourcePosition funcPos = new SourcePosition();
         start(funcPos);
 
-        Type tAST = parseType();
-        Ident iAST = parseIdent();
+        if(tAST == null){
+            tAST = parseType();
+        }
+        if(iAST == null){
+            iAST = parseIdent();
+        }
         List fplAST = parseParaList();
         Stmt cAST = parseCompoundStmt();
         finish(funcPos);
@@ -179,19 +210,90 @@ public class Parser {
         return fAST;
     }
 
+    Decl parseGlobalVarDecl(Type tAST, Ident iAST) throws SyntaxError {
+        Decl vAST = null;
+        /* incase the array type */
+        Type realtAST = tAST;
+        Expr eAST = null;
+        SourcePosition vPos = new SourcePosition();
+        start(vPos);
+
+        if(tAST == null){
+            tAST = parseType();
+        }
+        if(iAST == null){
+            iAST = parseIdent();
+        }
+        if(currentToken.kind == Token.LBRACKET){
+            realtAST = parseArrayType(tAST);
+        }
+        /* with initializer */
+        if(currentToken.kind == Token.EQ) {
+            match(Token.EQ);
+            if(currentToken.kind == Token.LCURLY){
+                /* init expr */
+                eAST = parseInitExpr();
+            }
+            else {
+                eAST = parseExpr();
+            }
+        }
+        else {
+            eAST = new EmptyExpr(dummyPos);
+        }
+        finish(vPos);
+        vAST = new GlobalVarDecl(tAST, iAST, eAST, vPos);
+        return vAST;
+    }
+
     //  ======================== TYPES ==========================
 
-    Type parseType() throws SyntaxError {
-        Type typeAST = null;
+    Type parseArrayType(Type tAST) throws SyntaxError {
+        Expr eAST = null;
+        SourcePosition aPos = tAST.getPosition();
+        SourcePosition ePos = new SourcePosition();
+        match(Token.LBRACKET);
+        start(ePos);
+        if(currentToken.kind == Token.RBRACKET){
+            eAST = new EmptyExpr(ePos);
+        }
+        else {
+            IntLiteral iAST = parseIntLiteral();
+            eAST = new IntExpr(iAST, ePos);
+        }
+        match(Token.RBRACKET);
+        finish(ePos);
+        Type realtAST = new ArrayType(tAST, eAST, aPos);
+        return realtAST;
+    }
 
+    Type parseType() throws SyntaxError {
+        Type tAST = null;
         SourcePosition typePos = new SourcePosition();
         start(typePos);
+        switch (currentToken.kind) {
 
-        accept();
-        finish(typePos);
-        typeAST = new VoidType(typePos);
-
-        return typeAST;
+        case Token.VOID:
+            accept();
+            finish(typePos);
+            tAST = new VoidType(typePos);
+            break;
+        case Token.BOOLEAN:
+            accept();
+            finish(typePos);
+            tAST = new BooleanType(typePos);
+            break;
+        case Token.INT:
+            accept();
+            finish(typePos);
+            tAST = new IntType(typePos);
+            break;
+        default:
+            accept();
+            finish(typePos);
+            tAST = new FloatType(typePos);
+        }
+        return tAST;
     }
 
     // ======================= STATEMENTS ==============================
@@ -288,6 +390,34 @@ public class Parser {
     }
 
     // ======================= EXPRESSIONS ======================
+    /* special Exprs */
+    Expr parseInitExpr() throws SyntaxError {
+        SourcePosition ePos = new SourcePosition();
+        start(ePos);
+        List elAST = parseExprList();
+        finish(ePos);
+        Expr eAST = new InitExpr(elAST, ePos);
+        return eAST;
+    }
+    /* only used for Init Expr */
+    List parseExprList() throws SyntaxError {
+        SourcePosition elPos = new SourcePosition();
+        start(elPos);
+        List elAST = null;
+        if(currentToken.kind == Token.RCURLY){
+            /* end of list */
+            finish(elPos);
+            match(Token.RCURLY);
+            elAST = new EmptyExprList(elPos);
+        }
+        else {
+            Expr eAST = parseExpr();
+            List nextElList = parseExprList();
+            finish(elPos);
+            elAST = new ExprList(eAST, elAST, elPos);
+        }
+        return elAST;
+    }
 
     Expr parseExpr() throws SyntaxError {
         Expr exprAST = null;
