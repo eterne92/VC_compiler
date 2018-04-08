@@ -273,7 +273,7 @@ public class Recogniser {
             parseExpr();
         }
         match(Token.SEMICOLON);
-        if(currentToken.kind != Token.SEMICOLON){
+        if(currentToken.kind != Token.RPAREN){
             parseExpr();
         }
         match(Token.RPAREN);
