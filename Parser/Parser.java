@@ -271,7 +271,8 @@ public class Parser {
 
         if(currentToken.kind == Token.VOID || currentToken.kind == Token.BOOLEAN
         || currentToken.kind == Token.INT || currentToken.kind == Token.FLOAT) {
-            vlAST = parseVarDeclList(null);
+            tAST = parseType();
+            vlAST = parseVarDeclList(tAST);
             finish(vlPos);
             vlAST = new DeclList(vAST, vlAST, vlPos);
         }
