@@ -76,6 +76,8 @@ public final class Checker implements Visitor {
   private SymbolTable idTable;
   private static SourcePosition dummyPos = new SourcePosition();
   private ErrorReporter reporter;
+  private int nestDepth;
+  private boolean func;
 
   // Checks whether the source program, represented by its AST, 
   // satisfies the language's scope rules and type rules.
@@ -87,6 +89,8 @@ public final class Checker implements Visitor {
   public Checker (ErrorReporter reporter) {
     this.reporter = reporter;
     this.idTable = new SymbolTable ();
+    this.nestDepth = 0;
+    this.func = false;
     establishStdEnvironment();
   }
 
@@ -119,11 +123,18 @@ public final class Checker implements Visitor {
   // Statements
 
   public Object visitCompoundStmt(CompoundStmt ast, Object o) {
-    idTable.openScope();
+    if(!(ast.parent instanceof FuncDecl)){
+      idTable.openScope();
+    }
 
     // Your code goes here
+    ast.DL.visit(this, o);
+    ast.SL.visit(this, o);
 
-    idTable.closeScope();
+    
+    if(!(ast.parent instanceof FuncDecl)){
+      idTable.closeScope();
+    }
     return null;
   }
 
@@ -132,6 +143,79 @@ public final class Checker implements Visitor {
     if (ast.S instanceof ReturnStmt && ast.SL instanceof StmtList)
       reporter.reportError(errMesg[30], "", ast.SL.position);
     ast.SL.visit(this, o);
+    return null;
+  }
+
+  public Object visitIfStmt(IfStmt ast, Object o){
+    Type t1 = (Type) ast.E.visit(this, o);
+    if(!t1.isBooleanType()){
+      reporter.reportError(errMesg[20] + " %", "(found: " + t1.toString() + ")", ast.E.position);
+    }
+    ast.S1.visit(this, o);
+    ast.S2.visit(this, o);
+    return null;
+  }
+
+  public Object visitWhileStmt(WhileStmt ast, Object o){
+    nestDepth++;
+    Type t1 = (Type) ast.E.visit(this, o);
+    if(!t1.isBooleanType()){
+      reporter.reportError(errMesg[22] + " %", "(found: " + t1.toString() + ")", ast.E.position);
+    }
+    ast.S.visit(this, o);
+    nestDepth--;
+    return null;
+  }
+
+  public Object visitForStmt(ForStmt ast, Object o){
+    nestDepth++;
+    ast.E1.visit(this, o);
+    Type t1 = (Type) ast.E2.visit(this, o);
+    if(!t1.isBooleanType()){
+      reporter.reportError(errMesg[21] + " %", "(found: " + t1.toString() + ")", ast.E2.position);
+    }
+    ast.E3.visit(this, o);
+    ast.S.visit(this, o);
+    nestDepth--;
+    return null;
+  }
+
+  public Object visitBreakStmt(BreakStmt ast, Object o){
+    if(nestDepth == 0){
+      reporter.reportError(errMesg[23], "", ast.position);
+    }
+   return null;
+  }
+
+  public Object visitContinueStmt(ContinueStmt ast, Object o){
+    if(nestDepth == 0){
+      reporter.reportError(errMesg[22], "", ast.position);
+    }
+    return null;
+  }
+
+  public Object visitReturnStmt(ReturnStmt ast, Object o){
+    Type t1 = (Type) ast.E.visit(this, null);
+    if(o instanceof FuncDecl){
+      FuncDecl fAST = (FuncDecl) o;
+      Type t2 = fAST.T;
+      if(fAST.I.spelling.equals("main")){
+        if(!t1.isIntType()){
+          reporter.reportError(errMesg[1], "", ast.position);
+        }
+      }
+      else if(!t2.assignable(t1)){
+        reporter.reportError(errMesg[8], "", ast.position);
+      }
+    }
+    else{
+      /* should never got here */
+      reporter.reportError(errMesg[28], "", ast.position);
+    }
+    return null;
+  }
+
+  public Object visitEmptyCompStmt(EmptyCompStmt ast, Object o){
     return null;
   }
 
@@ -185,12 +269,254 @@ public final class Checker implements Visitor {
     return ast.type;
   }
 
+  public Object visitSimpleVar(SimpleVar ast, Object o){
+    Decl binding = (Decl) ast.I.visit(this, null);
+    if(binding == null){
+      reporter.reportError(errMesg[5] + ": %", ast.I.spelling,ast.position);
+      return StdEnvironment.errorType;
+    }
+    return binding.T;
+  }
+
+  public Object visitUnaryExpr(UnaryExpr ast, Object o){
+    Type t1 = (Type) ast.E.visit(this, o);
+
+    if(t1.isErrorType()){
+      ast.type = StdEnvironment.errorType;
+      return ast.type;
+    }
+
+    switch(ast.O.spelling){
+      case "!":
+      if(t1.isBooleanType()){
+        ast.type = StdEnvironment.booleanType;
+        ast.O.spelling = "i" + ast.O.spelling;
+      }
+      else{
+        ast.type = StdEnvironment.errorType;
+        reporter.reportError(errMesg[10] + ": %", ast.O.spelling, ast.position);
+      }
+      break;
+
+      default:
+      if(t1.isIntType()){
+        ast.type = StdEnvironment.intType;
+        ast.O.spelling = "i" + ast.O.spelling;
+      }
+      else if(t1.isFloatType()){
+        ast.type = StdEnvironment.floatType;
+        ast.O.spelling = "f" + ast.O.spelling;
+      }
+      else{
+        ast.type = StdEnvironment.errorType;
+        reporter.reportError(errMesg[10] + ": %", ast.O.spelling, ast.position);
+      }
+    }
+
+    return ast.type;
+  }
+
+  public Object visitBinaryExpr(BinaryExpr ast, Object o){
+    Type t1 = (Type) ast.E1.visit(this, o);
+    Type t2 = (Type) ast.E2.visit(this, o);
+    if(t1.isErrorType() || t2.isErrorType()){
+      ast.type = StdEnvironment.errorType;
+      return ast.type;
+    }
+    switch(ast.O.spelling){
+      case "+":
+      case "-":
+      case "*":
+      case "/":
+      if(t1.isIntType() && t2.isIntType()){
+        ast.type = StdEnvironment.intType;
+        ast.O.spelling = "i" + ast.O.spelling;
+      }
+      else if(t1.isFloatType() && t2.isFloatType()){
+        ast.type = StdEnvironment.floatType;
+        ast.O.spelling = "f" + ast.O.spelling;
+      }
+      else if(t1.isIntType() && t2.isFloatType()){
+        ast.E1 = i2f(ast.E1);
+        ast.type = StdEnvironment.floatType;
+        ast.O.spelling = "f" + ast.O.spelling;
+      }
+      else if(t1.isFloatType() && t2.isIntType()){
+        ast.E2 = i2f(ast.E2);
+        ast.type = StdEnvironment.floatType;
+        ast.O.spelling = "f" + ast.O.spelling;
+      }
+      else{
+        ast.type = StdEnvironment.errorType;
+        reporter.reportError(errMesg[9] + ": %", ast.O.spelling , ast.position);
+      }
+      break;
+
+      case "<":
+      case "<=":
+      case ">":
+      case ">=":
+      if(t1.isIntType() && t2.isIntType()){
+        ast.type = StdEnvironment.booleanType;
+        ast.O.spelling = "i" + ast.O.spelling;
+      }
+      else if(t1.isFloatType() && t2.isFloatType()){
+        ast.type = StdEnvironment.booleanType;
+        ast.O.spelling = "f" + ast.O.spelling;
+      }
+      else{
+        ast.type = StdEnvironment.errorType;
+        reporter.reportError(errMesg[9] + ": %", ast.O.spelling , ast.position);
+      }
+      break;
+
+      case "==":
+      case "!=":
+      if(t1.isIntType() && t2.isIntType()){
+        ast.type = StdEnvironment.booleanType;
+        ast.O.spelling = "i" + ast.O.spelling;
+      }
+      else if(t1.isFloatType() && t2.isFloatType()){
+        ast.type = StdEnvironment.booleanType;
+        ast.O.spelling = "f" + ast.O.spelling;
+      }
+      else if(t1.isBooleanType() && t2.isBooleanType()){
+        ast.type = StdEnvironment.booleanType;
+        ast.O.spelling = "i" + ast.O.spelling;
+      }
+      else{
+        ast.type = StdEnvironment.errorType;
+        reporter.reportError(errMesg[9] + ": %", ast.O.spelling, ast.position);
+      }
+      break;
+ 
+
+      default:
+      if(t1.isBooleanType() && t2.isBooleanType()){
+        ast.type = StdEnvironment.booleanType;
+        ast.O.spelling = "i" + ast.O.spelling;
+      }
+      else{
+        ast.type = StdEnvironment.errorType;
+        reporter.reportError(errMesg[9] + ": %", ast.O.spelling, ast.position);
+      }
+
+    }
+    return ast.type;
+  }
+
+  public Object visitInitExpr(InitExpr ast, Object o){
+    ast.IL.visit(this, o);
+    ExprList il = (ExprList)ast.IL;
+    ArrayType t;
+    if(o instanceof GlobalVarDecl){
+      t = (ArrayType)((GlobalVarDecl) o).T;
+    }
+    else{
+      t = (ArrayType)((LocalVarDecl) o).T;
+    }
+    if(t.E instanceof IntExpr){
+      IntLiteral value = ((IntExpr)t.E).IL;
+      if(il.index > Integer.valueOf(value.spelling)){
+        reporter.reportError(errMesg[16], "", ast.position);
+      }
+    }
+    else if(t.E instanceof EmptyExpr){
+      IntLiteral i = new IntLiteral(String.valueOf(il.index), dummyPos);
+      t.E = new IntExpr(i, dummyPos);
+    }
+    return null;
+  }
+
+  public Object visitExprList(ExprList ast, Object o){
+    Type t = (Type) ast.E.visit(this, o);
+
+    if(o instanceof GlobalVarDecl){
+      GlobalVarDecl vAST = (GlobalVarDecl) o;
+      ArrayType t2 = (ArrayType)vAST.T;
+      if(!t2.T.assignable(t)){
+        reporter.reportError(errMesg[13], "",ast.position);
+      }
+      else if(t2.isFloatType()){
+        ast.E = i2f(ast.E);
+      }
+    }
+    else if(o instanceof LocalVarDecl){
+      LocalVarDecl vAST = (LocalVarDecl) o;
+      ArrayType t2 = (ArrayType)vAST.T;
+      if(!t2.T.assignable(t)){
+        reporter.reportError(errMesg[13], "",ast.position);
+      }
+      else if(t2.isFloatType()){
+        ast.E = i2f(ast.E);
+      }
+    }
+
+    if(ast.EL instanceof ExprList){
+      ExprList el = (ExprList) ast.EL.visit(this, o);
+      ast.index = el.index + 1;
+    }
+    else{
+      ast.EL.visit(this, o);
+      ast.index = 1;
+    }
+    return ast;
+  }
+
+  public Object visitArrayExpr(ArrayExpr ast, Object o){
+    Type t1 = (Type) ast.V.visit(this, null);
+    Type t2 = (Type) ast.E.visit(this, null);
+    if(!t1.isArrayType()){
+      reporter.reportError(errMesg[12], "", ast.position);
+      return StdEnvironment.errorType;
+    }
+    if(!t2.isIntType()){
+      reporter.reportError(errMesg[17], "", ast.position);
+      return StdEnvironment.errorType;
+    }
+    return ((ArrayType) t1).T;
+  }
+
+  public Object visitCallExpr(CallExpr ast, Object o){
+    Decl binding = (Decl) ast.I.visit(this, null);
+    if(binding == null){
+      reporter.reportError(errMesg[5] + ": %", ast.I.spelling, ast.I.position);
+      return null;
+    }
+    else if(!(binding instanceof FuncDecl)){
+      reporter.reportError(errMesg[19], "", ast.position);
+      return null;
+    }
+    ast.AL.visit(this, ((FuncDecl) binding).PL);
+    return null;
+  }
+
+  public Object visitAssignExpr(AssignExpr ast, Object o){
+    if(!(ast.E1 instanceof VarExpr || ast.E1 instanceof ArrayExpr)){
+      reporter.reportError(errMesg[7], "", ast.position);
+    }
+    Type t1 = (Type) ast.E1.visit(this, null);
+    Type t2 = (Type) ast.E2.visit(this, null);
+    if(!t1.assignable(t2)){
+      reporter.reportError(errMesg[6], "",ast.position);
+      return StdEnvironment.errorType;
+    }
+    if(t1.isFloatType() && t2.isIntType()){
+      ast.E2 = i2f(ast.E2);
+    }
+    return t1;
+  }
+
+  public Object visitEmptyExprList(EmptyExprList ast, Object o){
+    return null;
+  }
   // Declarations
 
   // Always returns null. Does not use the given object.
 
   public Object visitFuncDecl(FuncDecl ast, Object o) {
-    idTable.insert (ast.I.spelling, ast); 
+    // idTable.insert (ast.I.spelling, ast); 
+    declareVariable(ast.I, ast);
 
     // Your code goes here
 
@@ -199,7 +525,11 @@ public final class Checker implements Visitor {
     // formal parameters of the function an be extracted from ast when the
     // function body is later visited
 
+    idTable.openScope();
+    ast.PL.visit(this, ast);
     ast.S.visit(this, ast);
+    idTable.closeScope();
+
     return null;
   }
 
@@ -217,12 +547,98 @@ public final class Checker implements Visitor {
     declareVariable(ast.I, ast);
 
     // fill the rest
+    /* no init */
+    if(ast.E == null){
+      return ast.T;
+    }
+
+    // array
+    if(ast.T.isArrayType()){
+      // void array
+      if(((ArrayType) ast.T).T.isVoidType()){
+        reporter.reportError(errMesg[4] + ": %", ast.I.spelling, ast.I.position);
+      }
+
+      if(ast.E instanceof InitExpr){
+        ast.E.visit(this, ast);
+      }
+      else{
+        // init with scalar
+        reporter.reportError(errMesg[15], "", ast.position);
+      }
+    }
+    // not array
+    else{
+      // declare void id
+      if(ast.T.isVoidType()){
+        reporter.reportError(errMesg[3] + ": %", ast.I.spelling, ast.I.position);
+      }
+      // scaler init using array
+      if(ast.E instanceof InitExpr){
+        reporter.reportError(errMesg[14], "", ast.position);
+      }
+      // check assignable
+      Type t = (Type) ast.E.visit(this, null);
+      if(!ast.T.assignable(t)){
+        reporter.reportError(errMesg[6], "", ast.position);
+      }
+      else{
+        if(ast.T.isFloatType() && t.isIntType()){
+          ast.E = i2f(ast.E);
+        }
+      }
+    }
+
+    return null;
   }
 
   public Object visitLocalVarDecl(LocalVarDecl ast, Object o) {
     declareVariable(ast.I, ast);
 
-    // fill the rest
+     // fill the rest
+    /* no init */
+    if(ast.E instanceof EmptyExpr){
+      return ast.T;
+    }
+
+    // array
+    if(ast.T.isArrayType()){
+      // void array
+      if(((ArrayType) ast.T).T.isVoidType()){
+        reporter.reportError(errMesg[4] + ": %", ast.I.spelling, ast.I.position);
+      }
+
+      if(ast.E instanceof InitExpr){
+        ast.E.visit(this, ast);
+      }
+      else{
+        // init with scalar
+        reporter.reportError(errMesg[15], "", ast.position);
+      }
+    }
+    // not array
+    else{
+      // declare void id
+      if(ast.T.isVoidType()){
+        reporter.reportError(errMesg[3] + ": %", ast.I.spelling, ast.I.position);
+      }
+      // scaler init using array
+      if(ast.E instanceof InitExpr){
+        reporter.reportError(errMesg[14], "", ast.position);
+      }
+      // check assignable
+      Type t = (Type) ast.E.visit(this, null);
+      if(!ast.T.assignable(t)){
+        reporter.reportError(errMesg[6], "", ast.position);
+      }
+      else{
+        if(ast.T.isFloatType() && t.isIntType()){
+          ast.E = i2f(ast.E);
+        }
+      }
+    }
+
+    return null;
   }
 
   // Parameters
@@ -254,6 +670,37 @@ public final class Checker implements Visitor {
   // Arguments
 
   // Your visitor methods for arguments go here
+  public Object visitArgList(ArgList ast, Object o){
+    ast.A.visit(this, ((ParaList) o).P);
+    return null;
+  }
+
+  public Object visitArg(Arg ast, Object o){
+    Type t1 = ((ParaDecl) o).T;
+    Type t2 = (Type) ast.E.visit(this, null);
+    if(t1.isArrayType() && t2.isArrayType()){
+      if(((ArrayType) t1).T.equals(((ArrayType) t2).T)){
+
+      }
+      else{
+        reporter.reportError(errMesg[27], "", ast.E.position);
+      }
+    }
+    else if(!t1.assignable(t2)){
+      reporter.reportError(errMesg[27], "", ast.E.position);
+    }
+    else{
+      if(t1.isFloatType() && t2.isIntType()){
+        ast.E = i2f(ast.E);
+      }
+    }
+    return t1;
+  }
+
+  public Object visitEmptyArgList(EmptyArgList ast, Object o){
+
+    return null;
+  }
 
   // Types 
 
@@ -281,6 +728,11 @@ public final class Checker implements Visitor {
 
   public Object visitVoidType(VoidType ast, Object o) {
     return StdEnvironment.voidType;
+  }
+
+  public Object visitArrayType(ArrayType ast, Object o){
+
+    return null;
   }
 
   // Literals, Identifiers and Operators
@@ -330,6 +782,14 @@ public final class Checker implements Visitor {
   // Inserts these "declarations" into the symbol table.
 
   private final static Ident dummyI = new Ident("x", dummyPos);
+
+  // insert i2f for a int
+  private Expr i2f (Expr E){
+    Operator op = new Operator("i2f", dummyPos);
+    UnaryExpr eAST = new UnaryExpr(op, E, dummyPos);
+    eAST.type = StdEnvironment.floatType;
+    return eAST;
+  }
 
   private void establishStdEnvironment () {
 
