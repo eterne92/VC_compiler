@@ -77,7 +77,7 @@ public final class Checker implements Visitor {
   private static SourcePosition dummyPos = new SourcePosition();
   private ErrorReporter reporter;
   private int nestDepth;
-  private boolean func;
+  private boolean funcWithReturn;
 
   // Checks whether the source program, represented by its AST, 
   // satisfies the language's scope rules and type rules.
@@ -90,7 +90,7 @@ public final class Checker implements Visitor {
     this.reporter = reporter;
     this.idTable = new SymbolTable ();
     this.nestDepth = 0;
-    this.func = false;
+    this.funcWithReturn = true;
     establishStdEnvironment();
   }
 
@@ -116,7 +116,13 @@ public final class Checker implements Visitor {
 
   public Object visitProgram(Program ast, Object o) {
     ast.FL.visit(this, null);
-
+    Decl binding = idTable.retrieve("main");
+    if(binding == null){
+        reporter.reportError(errMesg[0], "", ast.position);
+    }
+    else if(!binding.T.isIntType()){
+        reporter.reportError(errMesg[1], "", ast.position);
+    }
     return null;
   }
 
@@ -189,7 +195,7 @@ public final class Checker implements Visitor {
 
   public Object visitContinueStmt(ContinueStmt ast, Object o){
     if(nestDepth == 0){
-      reporter.reportError(errMesg[22], "", ast.position);
+      reporter.reportError(errMesg[24], "", ast.position);
     }
     return null;
   }
@@ -212,6 +218,7 @@ public final class Checker implements Visitor {
       /* should never got here */
       reporter.reportError(errMesg[28], "", ast.position);
     }
+    funcWithReturn = true;
     return null;
   }
 
@@ -265,7 +272,7 @@ public final class Checker implements Visitor {
   }
 
   public Object visitVarExpr(VarExpr ast, Object o) {
-    ast.type = (Type) ast.V.visit(this, null);
+    ast.type = (Type) ast.V.visit(this, ast.parent);
     return ast.type;
   }
 
@@ -274,6 +281,15 @@ public final class Checker implements Visitor {
     if(binding == null){
       reporter.reportError(errMesg[5] + ": %", ast.I.spelling,ast.position);
       return StdEnvironment.errorType;
+    }
+    if(binding instanceof FuncDecl){
+        if(!(o instanceof ExprStmt)){
+            reporter.reportError(errMesg[11] + " %", ast.I.spelling, ast.position);
+            return StdEnvironment.errorType;
+        }
+    }
+    else if(binding.T.isArrayType()){
+
     }
     return binding.T;
   }
@@ -419,6 +435,7 @@ public final class Checker implements Visitor {
       IntLiteral value = ((IntExpr)t.E).IL;
       if(il.index > Integer.valueOf(value.spelling)){
         reporter.reportError(errMesg[16], "", ast.position);
+        return null;
       }
     }
     else if(t.E instanceof EmptyExpr){
@@ -436,8 +453,9 @@ public final class Checker implements Visitor {
       ArrayType t2 = (ArrayType)vAST.T;
       if(!t2.T.assignable(t)){
         reporter.reportError(errMesg[13], "",ast.position);
+        return ast;
       }
-      else if(t2.isFloatType()){
+      else if(t2.T.isFloatType()){
         ast.E = i2f(ast.E);
       }
     }
@@ -464,7 +482,7 @@ public final class Checker implements Visitor {
   }
 
   public Object visitArrayExpr(ArrayExpr ast, Object o){
-    Type t1 = (Type) ast.V.visit(this, null);
+    Type t1 = (Type) ast.V.visit(this, ast.parent);
     Type t2 = (Type) ast.E.visit(this, null);
     if(!t1.isArrayType()){
       reporter.reportError(errMesg[12], "", ast.position);
@@ -479,6 +497,10 @@ public final class Checker implements Visitor {
 
   public Object visitCallExpr(CallExpr ast, Object o){
     Decl binding = (Decl) ast.I.visit(this, null);
+    if(ast.I.spelling.equals("main")){
+        reporter.reportError(errMesg[29] + "main called", "", ast.position);
+        return null;
+    }
     if(binding == null){
       reporter.reportError(errMesg[5] + ": %", ast.I.spelling, ast.I.position);
       return null;
@@ -494,6 +516,7 @@ public final class Checker implements Visitor {
   public Object visitAssignExpr(AssignExpr ast, Object o){
     if(!(ast.E1 instanceof VarExpr || ast.E1 instanceof ArrayExpr)){
       reporter.reportError(errMesg[7], "", ast.position);
+      return StdEnvironment.errorType;
     }
     Type t1 = (Type) ast.E1.visit(this, null);
     Type t2 = (Type) ast.E2.visit(this, null);
@@ -526,8 +549,17 @@ public final class Checker implements Visitor {
     // function body is later visited
 
     idTable.openScope();
+    if(!ast.T.isVoidType()){
+        funcWithReturn = false;
+    }
+    else{
+        funcWithReturn = true;
+    }
     ast.PL.visit(this, ast);
     ast.S.visit(this, ast);
+    if(funcWithReturn == false){
+        reporter.reportError(errMesg[31], "", ast.position);
+    }
     idTable.closeScope();
 
     return null;
@@ -546,9 +578,17 @@ public final class Checker implements Visitor {
   public Object visitGlobalVarDecl(GlobalVarDecl ast, Object o) {
     declareVariable(ast.I, ast);
 
-    // fill the rest
+    // declare void id
+    if(ast.T.isVoidType()){
+        reporter.reportError(errMesg[3] + ": %", ast.I.spelling, ast.I.position);
+    }
     /* no init */
-    if(ast.E == null){
+    if(ast.E instanceof EmptyExpr){
+      if(ast.T.isArrayType()){
+        if(((ArrayType) ast.T).E instanceof EmptyExpr){
+            reporter.reportError(errMesg[18], "", ast.position);
+        }
+      }
       return ast.T;
     }
 
@@ -569,16 +609,12 @@ public final class Checker implements Visitor {
     }
     // not array
     else{
-      // declare void id
-      if(ast.T.isVoidType()){
-        reporter.reportError(errMesg[3] + ": %", ast.I.spelling, ast.I.position);
-      }
       // scaler init using array
       if(ast.E instanceof InitExpr){
         reporter.reportError(errMesg[14], "", ast.position);
       }
       // check assignable
-      Type t = (Type) ast.E.visit(this, null);
+      Type t = (Type) ast.E.visit(this, ast);
       if(!ast.T.assignable(t)){
         reporter.reportError(errMesg[6], "", ast.position);
       }
@@ -595,9 +631,18 @@ public final class Checker implements Visitor {
   public Object visitLocalVarDecl(LocalVarDecl ast, Object o) {
     declareVariable(ast.I, ast);
 
-     // fill the rest
+    // declare void id
+    if(ast.T.isVoidType()){
+      reporter.reportError(errMesg[3] + ": %", ast.I.spelling, ast.I.position);
+      return null;
+    }
     /* no init */
     if(ast.E instanceof EmptyExpr){
+      if(ast.T.isArrayType()){
+        if(((ArrayType) ast.T).E instanceof EmptyExpr){
+            reporter.reportError(errMesg[18], "", ast.position);
+        }
+      }
       return ast.T;
     }
 
@@ -606,6 +651,7 @@ public final class Checker implements Visitor {
       // void array
       if(((ArrayType) ast.T).T.isVoidType()){
         reporter.reportError(errMesg[4] + ": %", ast.I.spelling, ast.I.position);
+        return null;
       }
 
       if(ast.E instanceof InitExpr){
@@ -614,22 +660,21 @@ public final class Checker implements Visitor {
       else{
         // init with scalar
         reporter.reportError(errMesg[15], "", ast.position);
+        return null;
       }
     }
     // not array
     else{
-      // declare void id
-      if(ast.T.isVoidType()){
-        reporter.reportError(errMesg[3] + ": %", ast.I.spelling, ast.I.position);
-      }
       // scaler init using array
       if(ast.E instanceof InitExpr){
         reporter.reportError(errMesg[14], "", ast.position);
+        return null;
       }
       // check assignable
-      Type t = (Type) ast.E.visit(this, null);
+      Type t = (Type) ast.E.visit(this, ast);
       if(!ast.T.assignable(t)){
         reporter.reportError(errMesg[6], "", ast.position);
+        return null;
       }
       else{
         if(ast.T.isFloatType() && t.isIntType()){
@@ -671,7 +716,12 @@ public final class Checker implements Visitor {
 
   // Your visitor methods for arguments go here
   public Object visitArgList(ArgList ast, Object o){
+    if(o instanceof EmptyParaList){
+        reporter.reportError(errMesg[25], "", ast.position);
+        return null;
+    }
     ast.A.visit(this, ((ParaList) o).P);
+    ast.AL.visit(this, ((ParaList) o).PL);
     return null;
   }
 
@@ -679,15 +729,19 @@ public final class Checker implements Visitor {
     Type t1 = ((ParaDecl) o).T;
     Type t2 = (Type) ast.E.visit(this, null);
     if(t1.isArrayType() && t2.isArrayType()){
-      if(((ArrayType) t1).T.equals(((ArrayType) t2).T)){
-
-      }
-      else{
-        reporter.reportError(errMesg[27], "", ast.E.position);
-      }
+        if(((ArrayType) t1).T.assignable(((ArrayType) t2).T)){
+            System.out.println(
+                t1.equals(t2)
+            );
+        }
+        else{
+            reporter.reportError(errMesg[27], "",  ast.E.position);
+            return StdEnvironment.errorType;
+        }
     }
     else if(!t1.assignable(t2)){
       reporter.reportError(errMesg[27], "", ast.E.position);
+      return StdEnvironment.errorType;
     }
     else{
       if(t1.isFloatType() && t2.isIntType()){
@@ -698,7 +752,11 @@ public final class Checker implements Visitor {
   }
 
   public Object visitEmptyArgList(EmptyArgList ast, Object o){
-
+    if(o instanceof EmptyParaList){
+    }
+    else{
+        reporter.reportError(errMesg[26], "", ast.parent.position);
+    }
     return null;
   }
 
